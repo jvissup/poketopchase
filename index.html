@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pokémon Top Cards by Price</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 24px 16px 48px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      color: #ffcb05;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      letter-spacing: 1px;
+    }
+
+    header p {
+      margin-top: 6px;
+      color: #a0a0c0;
+      font-size: 0.95rem;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 36px;
+    }
+
+    select {
+      appearance: none;
+      background: #16213e;
+      color: #ffcb05;
+      border: 2px solid #ffcb05;
+      border-radius: 8px;
+      padding: 10px 40px 10px 16px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      min-width: 320px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='%23ffcb05'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+    }
+
+    select:focus { outline: none; box-shadow: 0 0 0 3px rgba(255,203,5,0.35); }
+
+    #set-title {
+      text-align: center;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #ffcb05;
+      margin-bottom: 24px;
+      min-height: 1.5em;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: #16213e;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+      transition: transform 0.2s, box-shadow 0.2s;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 28px rgba(255,203,5,0.25);
+    }
+
+    .card-rank {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      background: rgba(0,0,0,0.65);
+      color: #ffcb05;
+      font-weight: 800;
+      font-size: 0.85rem;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card-img-wrap {
+      position: relative;
+      background: #0f3460;
+      aspect-ratio: 2/3;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card-img-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      transition: opacity 0.3s;
+    }
+
+    .card-img-wrap img.loading { opacity: 0; }
+
+    .img-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #5577aa;
+      font-size: 0.8rem;
+      text-align: center;
+      padding: 12px;
+    }
+
+    .img-placeholder svg { opacity: 0.4; }
+
+    .card-body {
+      padding: 12px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .card-name {
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: #e8e8ff;
+      line-height: 1.3;
+    }
+
+    .card-price {
+      font-size: 1rem;
+      font-weight: 800;
+      color: #4caf88;
+    }
+
+    .card-google-link {
+      font-size: 0.75rem;
+      color: #7799cc;
+      text-decoration: none;
+      margin-top: auto;
+    }
+
+    .card-google-link:hover { color: #ffcb05; text-decoration: underline; }
+
+    #placeholder-msg {
+      text-align: center;
+      color: #5577aa;
+      font-size: 1.1rem;
+      margin-top: 60px;
+    }
+
+    #loading-msg {
+      text-align: center;
+      color: #7799cc;
+      font-size: 1rem;
+      margin-top: 40px;
+      display: none;
+    }
+
+    #error-msg {
+      text-align: center;
+      color: #e05050;
+      font-size: 1rem;
+      margin-top: 40px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🎴 Pokémon Top Cards by Price</h1>
+  <p>Select a set to see the top 10 highest-priced cards</p>
+</header>
+
+<div class="controls">
+  <select id="setSelect">
+    <option value="">— Choose a Set —</option>
+  </select>
+</div>
+
+<div id="set-title"></div>
+<div id="loading-msg">Loading card data…</div>
+<div id="error-msg"></div>
+<p id="placeholder-msg">Please select a set from the dropdown above.</p>
+<div class="grid" id="cardsGrid"></div>
+
+<script>
+  // Update this filename whenever a new export is uploaded
+  const CSV_FILE = 'pricecharting_export_20260405_063412Z.csv';
+  const TCG_API  = 'https://api.pokemontcg.io/v2/cards';
+  const MAX_CONCURRENT_IMG_FETCHES = 5;
+
+  // ── CSV parser (handles quoted fields) ──────────────────────────────────────
+  function parseCSV(text) {
+    const rows = [];
+    const lines = text.split(/\r?\n/);
+    const headers = splitLine(lines[0]);
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const vals = splitLine(lines[i]);
+      const obj = {};
+      headers.forEach((h, idx) => { obj[h.trim()] = (vals[idx] || '').trim(); });
+      rows.push(obj);
+    }
+    return rows;
+  }
+
+  function splitLine(line) {
+    const result = [];
+    let cur = '', inQuote = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        // RFC 4180: two consecutive quotes inside a quoted field = literal quote
+        if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
+        else { inQuote = !inQuote; }
+      } else if (ch === ',' && !inQuote) {
+        result.push(cur); cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    result.push(cur);
+    return result;
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  function cleanSetName(raw) {
+    return raw.replace(/^Prices for /, '').trim();
+  }
+
+  function parsePrice(raw) {
+    const n = parseFloat(raw.replace(/[$,]/g, ''));
+    return isNaN(n) ? null : n;
+  }
+
+  function formatPrice(n) {
+    return '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  // Strip card number suffix (#123) to get a clean name for image lookup
+  function baseCardName(cardName) {
+    return cardName.replace(/\s*#\d+.*$/, '').trim();
+  }
+
+  function googleImagesURL(cardName) {
+    return 'https://www.google.com/search?tbm=isch&q=' +
+           encodeURIComponent('Pokemon card ' + cardName);
+  }
+
+  // ── TCG API image fetch (returns image URL or null) ──────────────────────────
+  const imgCache = {};
+
+  async function fetchCardImage(cardName, setDisplayName) {
+    const cacheKey = cardName + '|' + setDisplayName;
+    if (imgCache[cacheKey] !== undefined) return imgCache[cacheKey];
+
+    // Extract the set portion to narrow search (e.g. "Pokemon Paldean Fates Pokemon Cards" → "Paldean Fates")
+    const apiSetName = setDisplayName
+      .replace(/^Pokemon\s+/, '')
+      .replace(/\s+Pokemon Cards$/, '')
+      .trim();
+
+    const name = baseCardName(cardName);
+    const query = `name:"${name}" set.name:"${apiSetName}"`;
+    const url = `${TCG_API}?q=${encodeURIComponent(query)}&pageSize=1&select=images`;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('API error');
+      const json = await res.json();
+      const img = json.data && json.data[0] && json.data[0].images
+                  ? (json.data[0].images.small || json.data[0].images.large || null)
+                  : null;
+      imgCache[cacheKey] = img;
+      return img;
+    } catch {
+      // Fall back: try without set name
+      try {
+        const url2 = `${TCG_API}?q=${encodeURIComponent(`name:"${name}"`)}&pageSize=1&select=images`;
+        const res2 = await fetch(url2);
+        if (!res2.ok) throw new Error();
+        const json2 = await res2.json();
+        const img2 = json2.data && json2.data[0] && json2.data[0].images
+                     ? (json2.data[0].images.small || json2.data[0].images.large || null)
+                     : null;
+        imgCache[cacheKey] = img2;
+        return img2;
+      } catch {
+        imgCache[cacheKey] = null;
+        return null;
+      }
+    }
+  }
+
+  // ── Rate-limited image fetching ──────────────────────────────────────────────
+  // Limits concurrent TCG API requests to MAX_CONCURRENT_IMG_FETCHES at a time.
+  let _activeFetches = 0;
+  const _fetchQueue = [];
+
+  function enqueueImageFetch(cardName, setDisplayName, idx) {
+    return new Promise(resolve => {
+      _fetchQueue.push({ cardName, setDisplayName, idx, resolve });
+      _drainQueue();
+    });
+  }
+
+  function _drainQueue() {
+    while (_activeFetches < MAX_CONCURRENT_IMG_FETCHES && _fetchQueue.length > 0) {
+      const { cardName, setDisplayName, resolve } = _fetchQueue.shift();
+      _activeFetches++;
+      fetchCardImage(cardName, setDisplayName).then(imgUrl => {
+        _activeFetches--;
+        resolve(imgUrl);
+        _drainQueue();
+      });
+    }
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+  function renderCards(cards, setDisplayName) {
+    const grid = document.getElementById('cardsGrid');
+    grid.innerHTML = '';
+
+    cards.forEach((card, idx) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'card';
+
+      const googleURL = googleImagesURL(card.card_name);
+
+      wrapper.innerHTML = `
+        <div class="card-img-wrap">
+          <div class="img-placeholder" id="ph-${idx}">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M21 19V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z"/>
+            </svg>
+            <span>Loading image…</span>
+          </div>
+          <img id="img-${idx}" class="loading" alt="${card.card_name}" />
+          <div class="card-rank">${idx + 1}</div>
+        </div>
+        <div class="card-body">
+          <div class="card-name">${card.card_name}</div>
+          <div class="card-price">${formatPrice(card.price)}</div>
+          <a class="card-google-link" href="${googleURL}" target="_blank" rel="noopener">
+            🔍 Search on Google Images
+          </a>
+        </div>
+      `;
+
+      grid.appendChild(wrapper);
+
+      // Queue image load with concurrency limit
+      enqueueImageFetch(card.card_name, setDisplayName, idx).then(imgUrl => {
+        const imgEl = document.getElementById(`img-${idx}`);
+        const phEl  = document.getElementById(`ph-${idx}`);
+        if (!imgEl) return;
+        if (imgUrl) {
+          imgEl.src = imgUrl;
+          imgEl.onload = () => {
+            imgEl.classList.remove('loading');
+            if (phEl) phEl.style.display = 'none';
+          };
+          imgEl.onerror = () => {
+            if (phEl) phEl.querySelector('span').textContent = 'Image unavailable';
+          };
+        } else {
+          if (phEl) phEl.querySelector('span').textContent = 'Image not found';
+        }
+      });
+    });
+  }
+
+  // ── Main ─────────────────────────────────────────────────────────────────────
+  let allRows = [];
+
+  async function init() {
+    const loadingEl     = document.getElementById('loading-msg');
+    const errorEl       = document.getElementById('error-msg');
+    const placeholderEl = document.getElementById('placeholder-msg');
+
+    loadingEl.style.display = 'block';
+    placeholderEl.style.display = 'none';
+
+    try {
+      const res = await fetch(CSV_FILE);
+      if (!res.ok) throw new Error(`Could not load ${CSV_FILE}`);
+      const text = await res.text();
+      allRows = parseCSV(text);
+    } catch (err) {
+      loadingEl.style.display = 'none';
+      errorEl.textContent = '⚠️ ' + err.message;
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    loadingEl.style.display = 'none';
+
+    // Collect unique set names
+    const sets = [...new Set(allRows.map(r => r.set_name).filter(Boolean))];
+
+    const select = document.getElementById('setSelect');
+    sets.forEach(rawSet => {
+      const opt = document.createElement('option');
+      opt.value = rawSet;
+      opt.textContent = cleanSetName(rawSet);
+      select.appendChild(opt);
+    });
+
+    placeholderEl.style.display = 'block';
+
+    select.addEventListener('change', () => {
+      const chosen = select.value;
+      const titleEl = document.getElementById('set-title');
+      const grid    = document.getElementById('cardsGrid');
+
+      if (!chosen) {
+        titleEl.textContent = '';
+        grid.innerHTML = '';
+        placeholderEl.style.display = 'block';
+        return;
+      }
+
+      placeholderEl.style.display = 'none';
+
+      // Cancel any queued (not-yet-started) image fetches from a previous selection
+      _fetchQueue.length = 0;
+
+      const setDisplayName = cleanSetName(chosen);
+      titleEl.textContent = `Top 10 — ${setDisplayName}`;
+
+      // Filter, parse price, sort desc, take top 10
+      const top10 = allRows
+        .filter(r => r.set_name === chosen)
+        .map(r => ({ card_name: r.card_name, price: parsePrice(r.ungraded_price) }))
+        .filter(r => r.price !== null)
+        .sort((a, b) => b.price - a.price)
+        .slice(0, 10);
+
+      renderCards(top10, setDisplayName);
+    });
+  }
+
+  init();
+</script>
+</body>
+</html>
