@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pokémon Top Cards by Price</title>
+  <!-- Google Identity Services – only the Client ID is used here (public identifier).
+       The Client Secret must stay server-side and must never appear in this file. -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -193,6 +196,67 @@
       margin-top: 40px;
       display: none;
     }
+
+    /* ── Google Photos auth bar ──────────────────────────────────────────────── */
+    #gp-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    #gp-signin-btn {
+      background: #fff;
+      color: #444;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      transition: box-shadow 0.2s;
+    }
+
+    #gp-signin-btn:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.5); }
+
+    #gp-signin-btn img { width: 18px; height: 18px; }
+
+    #gp-status {
+      font-size: 0.85rem;
+      color: #7799cc;
+    }
+
+    #gp-status.connected { color: #4caf88; }
+
+    #gp-signout-btn {
+      background: transparent;
+      color: #7799cc;
+      border: 1px solid #7799cc;
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      display: none;
+    }
+
+    #gp-signout-btn:hover { color: #ffcb05; border-color: #ffcb05; }
+
+    .card-photo-badge {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 4px;
+      padding: 2px 5px;
+      font-size: 0.65rem;
+      color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -201,6 +265,16 @@
   <h1>🎴 Pokémon Top Cards by Price</h1>
   <p>Select a set to see the top 10 highest-priced cards</p>
 </header>
+
+<!-- Google Photos sign-in bar -->
+<div id="gp-bar">
+  <button id="gp-signin-btn" title="Sign in to use your Google Photos as card images">
+    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" />
+    Connect Google Photos
+  </button>
+  <span id="gp-status">Google Photos: not connected</span>
+  <button id="gp-signout-btn">Sign out</button>
+</div>
 
 <div class="controls">
   <select id="setSelect">
@@ -215,6 +289,105 @@
 <div class="grid" id="cardsGrid"></div>
 
 <script>
+  // ── Google OAuth config ──────────────────────────────────────────────────────
+  // Only the Client ID is used here — it is a public identifier and safe for
+  // front-end code.  The Client Secret must ONLY live in a server-side
+  // environment and must never be committed to this repository.
+  const GOOGLE_CLIENT_ID = '956904813156-8dei7kj8069vmj8ep8bvu1e2pr7hovm3.apps.googleusercontent.com';
+  const GP_SCOPES        = 'https://www.googleapis.com/auth/photoslibrary.readonly';
+
+  let gpAccessToken = null;   // set after successful OAuth
+  let gpTokenClient = null;   // Google Identity Services token client
+
+  // ── Google Photos helpers ────────────────────────────────────────────────────
+  async function searchGooglePhotosByName(cardName) {
+    if (!gpAccessToken) return null;
+    // Google Photos Library API doesn't support free-text search on media content,
+    // so we list recent items and look for filename matches.
+    // NOTE: Only scans the first 100 items. For larger libraries, name photos to
+    // match your card names (e.g. "Charizard ex.jpg") for reliable matching.
+    try {
+      const url = `https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=100`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${gpAccessToken}` }
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      if (!json.mediaItems) return null;
+      // Use word-boundary matching to avoid false positives (e.g. "Char" matching "Discharge")
+      const lower = cardName.toLowerCase().replace(/\s*#\d+.*$/, '').trim();
+      const escapedName = lower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`(?:^|[\\s._-])${escapedName}(?:[\\s._-]|$)`, 'i');
+      const match = json.mediaItems.find(item =>
+        item.filename && (
+          re.test(item.filename.replace(/\.[^.]+$/, '')) ||
+          item.filename.toLowerCase().replace(/\.[^.]+$/, '') === lower
+        )
+      );
+      return match ? match.baseUrl + '=w400-h600' : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Google Identity Services init ────────────────────────────────────────────
+  function initGoogleAuth() {
+    if (!window.google || !window.google.accounts) {
+      // Library not yet loaded — retry shortly
+      setTimeout(initGoogleAuth, 300);
+      return;
+    }
+
+    gpTokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: GP_SCOPES,
+      callback: (tokenResponse) => {
+        if (tokenResponse.error) {
+          console.error('Google auth error:', tokenResponse.error);
+          updateGpStatus(false);
+          return;
+        }
+        gpAccessToken = tokenResponse.access_token;
+        updateGpStatus(true);
+      }
+    });
+
+    document.getElementById('gp-signin-btn').addEventListener('click', () => {
+      gpTokenClient.requestAccessToken();
+    });
+
+    document.getElementById('gp-signout-btn').addEventListener('click', () => {
+      if (gpAccessToken) {
+        google.accounts.oauth2.revoke(gpAccessToken, (done) => {
+          if (done.error) console.error('Token revocation failed:', done.error);
+        });
+      }
+      gpAccessToken = null;
+      updateGpStatus(false);
+    });
+  }
+
+  function updateGpStatus(connected) {
+    const statusEl   = document.getElementById('gp-status');
+    const signinBtn  = document.getElementById('gp-signin-btn');
+    const signoutBtn = document.getElementById('gp-signout-btn');
+    if (connected) {
+      statusEl.textContent = '✅ Google Photos connected';
+      statusEl.className   = 'connected';
+      signinBtn.style.display  = 'none';
+      signoutBtn.style.display = 'inline-block';
+    } else {
+      statusEl.textContent = 'Google Photos: not connected';
+      statusEl.className   = '';
+      signinBtn.style.display  = '';
+      signoutBtn.style.display = 'none';
+    }
+  }
+
+  // Kick off Google auth init once the GIS library loads
+  window.addEventListener('load', initGoogleAuth);
+
+  // ── CSV config ───────────────────────────────────────────────────────────────
   // Update this filename whenever a new export is uploaded
   const CSV_FILE = 'pricecharting_export_20260405_063412Z.csv';
   const TCG_API  = 'https://api.pokemontcg.io/v2/cards';
@@ -281,11 +454,7 @@
   // ── TCG API image fetch (returns image URL or null) ──────────────────────────
   const imgCache = {};
 
-  async function fetchCardImage(cardName, setDisplayName) {
-    const cacheKey = cardName + '|' + setDisplayName;
-    if (imgCache[cacheKey] !== undefined) return imgCache[cacheKey];
-
-    // Extract the set portion to narrow search (e.g. "Pokemon Paldean Fates Pokemon Cards" → "Paldean Fates")
+  async function fetchCardImageTCG(cardName, setDisplayName) {
     const apiSetName = setDisplayName
       .replace(/^Pokemon\s+/, '')
       .replace(/\s+Pokemon Cards$/, '')
@@ -299,11 +468,9 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error('API error');
       const json = await res.json();
-      const img = json.data && json.data[0] && json.data[0].images
-                  ? (json.data[0].images.small || json.data[0].images.large || null)
-                  : null;
-      imgCache[cacheKey] = img;
-      return img;
+      return json.data && json.data[0] && json.data[0].images
+             ? (json.data[0].images.small || json.data[0].images.large || null)
+             : null;
     } catch {
       // Fall back: try without set name
       try {
@@ -311,16 +478,33 @@
         const res2 = await fetch(url2);
         if (!res2.ok) throw new Error();
         const json2 = await res2.json();
-        const img2 = json2.data && json2.data[0] && json2.data[0].images
-                     ? (json2.data[0].images.small || json2.data[0].images.large || null)
-                     : null;
-        imgCache[cacheKey] = img2;
-        return img2;
+        return json2.data && json2.data[0] && json2.data[0].images
+               ? (json2.data[0].images.small || json2.data[0].images.large || null)
+               : null;
       } catch {
-        imgCache[cacheKey] = null;
         return null;
       }
     }
+  }
+
+  // ── Combined image fetch: Google Photos first, then TCG API ─────────────────
+  async function fetchCardImage(cardName, setDisplayName) {
+    const cacheKey = cardName + '|' + setDisplayName;
+    if (imgCache[cacheKey] !== undefined) return imgCache[cacheKey];
+
+    // 1. Try Google Photos if the user has connected their account
+    if (gpAccessToken) {
+      const gpUrl = await searchGooglePhotosByName(cardName);
+      if (gpUrl) {
+        imgCache[cacheKey] = { url: gpUrl, source: 'google' };
+        return imgCache[cacheKey];
+      }
+    }
+
+    // 2. Fall back to Pokemon TCG API
+    const tcgUrl = await fetchCardImageTCG(cardName, setDisplayName);
+    imgCache[cacheKey] = tcgUrl ? { url: tcgUrl, source: 'tcg' } : null;
+    return imgCache[cacheKey];
   }
 
   // ── Rate-limited image fetching ──────────────────────────────────────────────
@@ -339,9 +523,9 @@
     while (_activeFetches < MAX_CONCURRENT_IMG_FETCHES && _fetchQueue.length > 0) {
       const { cardName, setDisplayName, resolve } = _fetchQueue.shift();
       _activeFetches++;
-      fetchCardImage(cardName, setDisplayName).then(imgUrl => {
+      fetchCardImage(cardName, setDisplayName).then(result => {
         _activeFetches--;
-        resolve(imgUrl);
+        resolve(result);
         _drainQueue();
       });
     }
@@ -381,15 +565,25 @@
       grid.appendChild(wrapper);
 
       // Queue image load with concurrency limit
-      enqueueImageFetch(card.card_name, setDisplayName, idx).then(imgUrl => {
+      enqueueImageFetch(card.card_name, setDisplayName, idx).then(result => {
         const imgEl = document.getElementById(`img-${idx}`);
         const phEl  = document.getElementById(`ph-${idx}`);
         if (!imgEl) return;
-        if (imgUrl) {
-          imgEl.src = imgUrl;
+        if (result && result.url) {
+          imgEl.src = result.url;
           imgEl.onload = () => {
             imgEl.classList.remove('loading');
             if (phEl) phEl.style.display = 'none';
+            // Show a small badge when the image came from Google Photos
+            if (result.source === 'google') {
+              const imgWrap = imgEl.closest('.card-img-wrap');
+              if (imgWrap) {
+                const badge = document.createElement('div');
+                badge.className = 'card-photo-badge';
+                badge.textContent = '📷 Your photo';
+                imgWrap.appendChild(badge);
+              }
+            }
           };
           imgEl.onerror = () => {
             if (phEl) phEl.querySelector('span').textContent = 'Image unavailable';
